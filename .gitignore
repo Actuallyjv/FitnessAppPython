@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+gymapp.db
+.pytest_cache/
+.buildozer/
+bin/
