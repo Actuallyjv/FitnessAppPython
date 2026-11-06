@@ -12,7 +12,17 @@ A Planet Fitness-style mobile gym app written in Python with Kivy and SQLite.
 - **Challenges & rewards**: join challenges, progress bars, badges, 30-day leaderboard
 - **Admin dashboard**: stats, member search and freeze/activate, create/delete classes, rosters, recent check-ins
 
-## Run
+## Web version (runs in a phone browser)
+```
+pip install flask
+python web/server.py          # serves on http://0.0.0.0:8000
+```
+Open the URL on your phone (same network, or via a forwarded/preview port). It's a mobile-first single-page app that
+uses the same `gymapp/services.py` rules as the Kivy app, with the same features. Use "Add to Home Screen" for an
+app-like icon. Set `GYM_DB` to choose the database file and `PORT` to change the port.
+Note: the dev server is for demos; put it behind a production server and HTTPS before real use.
+
+## Run (Kivy)
 ```
 pip install -r requirements.txt
 python main.py

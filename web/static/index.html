@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#5e2594">
+<title>Gym App</title>
+<style>
+:root{--bg:#17171c;--card:#25252e;--card2:#32323d;--fg:#f4f4f8;--mut:#a9a9b8;--pur:#5e2594;--yel:#ffd21a;--grn:#2fb36b;--red:#d94040}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;padding-bottom:calc(64px + env(safe-area-inset-bottom))}
+main{max-width:560px;margin:0 auto;padding:14px 16px}
+h1{font-size:30px;margin:8px 0;color:var(--yel);text-align:center;letter-spacing:2px}
+h2{font-size:24px;margin:6px 0 12px}
+.card{background:var(--card);border-radius:14px;padding:14px;margin-bottom:12px}
+.card h3{margin:0 0 8px;font-size:17px;color:var(--yel)}
+.mut{color:var(--mut);font-size:14px}.sm{font-size:13px}.c{text-align:center}
+button,select,input{font:inherit;border-radius:10px;border:0;padding:12px;width:100%;margin:4px 0}
+input,select{background:#1d1d24;color:var(--fg);border:1px solid #444}
+button{background:var(--pur);color:#fff;font-weight:600;cursor:pointer;min-height:44px}
+button:active{filter:brightness(1.25)}button.g{background:var(--grn)}button.r{background:var(--red)}button.s{background:var(--card2)}
+button.sm{padding:6px;min-height:36px;width:auto;min-width:70px}
+.row{display:flex;gap:8px;align-items:center}.row>*{flex:1}.row>.fix{flex:0 0 auto}
+.seg{display:flex;gap:6px;margin-bottom:12px}.seg button{margin:0;padding:8px 4px;min-height:40px}.seg button:not(.on){background:var(--card2)}
+nav{position:fixed;bottom:0;left:0;right:0;display:flex;background:#101015;padding-bottom:env(safe-area-inset-bottom);border-top:1px solid #333}
+nav button{background:none;border-radius:0;margin:0;color:var(--mut);min-height:56px;font-size:13px;font-weight:500}
+nav button.on{color:#fff;background:var(--pur)}
+.bar{height:10px;background:#111;border-radius:6px;overflow:hidden;margin:6px 0}.bar>i{display:block;height:100%;background:var(--grn)}
+.ok{color:#4ddc8c}.bad{color:#ff6666}
+.bc{background:#fff;border-radius:6px;padding:8px}.bc svg{width:100%;height:80px;display:block}
+.item{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid #333}.item:last-child{border:0}
+#toast{position:fixed;left:16px;right:16px;bottom:80px;margin:auto;max-width:520px;padding:12px 14px;border-radius:12px;background:#333;color:#fff;z-index:9;display:none;box-shadow:0 4px 18px #0008}
+#toast.err{background:#a02a2a}#toast.ok{background:#1f7a4b;color:#fff}
+.slots{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}.slots button{margin:0;padding:8px}
+</style></head><body>
+<main id="app"></main><nav id="nav"></nav><div id="toast"></div>
+<script>
+const $=s=>document.querySelector(s);
+const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const S={tab:'Home',sub:{Train:'Workout',More:'Membership'},bookGym:null,reg:false,opts:null,q:''};
+const TABS=['Home','Train','Book','Gyms','More'];
+let toastT;
+function toast(msg,kind='err'){const t=$('#toast');t.textContent=msg;t.className=kind;t.style.display='block';clearTimeout(toastT);toastT=setTimeout(()=>t.style.display='none',3500)}
+async function post(path,body){
+  const r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body||{})});
+  const j=await r.json().catch(()=>({error:'Server error'}));
+  if(!r.ok){if(j.auth){S.authed=false;await render();}throw new Error(j.error||'Request failed')}
+  return j.data!==undefined?j.data:j;
+}
+const api=(a,b)=>post('/api/'+a,b);
+// Run a call, toast any rule error, optionally re-render.
+async function run(p,okMsg){try{const r=await p;if(okMsg)toast(okMsg,'ok');await render();return r}catch(e){toast(e.message);return null}}
+
+// ---- Code 39 barcode ----
+const C39={0:'nnnwwnwnn',1:'wnnwnnnnw',2:'nnwwnnnnw',3:'wnwwnnnnn',4:'nnnwwnnnw',5:'wnnwwnnnn',6:'nnwwwnnnn',7:'nnnwnnwnw',8:'wnnwnnwnn',9:'nnwwnnwnn',G:'nnnnnwwnw',M:'wnwnnnnwn',Y:'wwnnwnnnn','*':'nwnnwnwnn'};
+function barcode(text){let x=0,rects='';
+  [...('*'+text+'*')].forEach((ch,i)=>{if(i)x+=1;[...C39[ch]].forEach((e,j)=>{const w=e==='w'?3:1;if(j%2===0)rects+=`<rect x="${x}" y="0" width="${w}" height="50"/>`;x+=w})});
+  return `<div class="bc"><svg viewBox="0 0 ${x} 50" preserveAspectRatio="none" role="img" aria-label="Membership barcode ${esc(text)}">${rects}</svg></div>`}
+
+const bar=(v,m)=>`<div class="bar"><i style="width:${Math.min(100,100*v/Math.max(1,m))}%"></i></div>`;
+const card=(t,body)=>`<div class="card">${t?`<h3>${esc(t)}</h3>`:''}${body}</div>`;
+const btn=(label,act,args={},cls='')=>`<button class="${cls}" data-do="${act}" data-args='${esc(JSON.stringify(args))}'>${esc(label)}</button>`;
+const seg=(tab,opts)=>`<div class="seg">${opts.map(o=>`<button class="${S.sub[tab]===o?'on':''}" data-do="sub" data-args='${esc(JSON.stringify({tab,o}))}'>${o}</button>`).join('')}</div>`;
+const sel=(id,opts,cur)=>`<select id="${id}">${opts.map(([v,l])=>`<option value="${esc(v)}"${String(v)===String(cur)?' selected':''}>${esc(l)}</option>`).join('')}</select>`;
+const val=id=>document.getElementById(id)?.value;
+
+// ---- pages ----
+async function login(){
+  S.opts=S.opts||await (await fetch('/api/options')).json();
+  const o=S.opts;
+  $('#nav').innerHTML='';
+  $('#app').innerHTML=`<h1>GYM APP</h1><p class="c mut">Judgement-free fitness</p>`+card(S.reg?'Create account':'Sign in',
+   (S.reg?`<input id="name" placeholder="Full name" autocomplete="name">`:'')+
+   `<input id="email" type="email" placeholder="Email" autocomplete="email" autocapitalize="none">
+    <input id="pw" type="password" placeholder="Password (6+ characters)" autocomplete="${S.reg?'new':'current'}-password">`+
+   (S.reg?sel('plan',o.plans.map(p=>[p.id,`${p.name} - $${p.price.toFixed(2)}/mo`]))+sel('gym',o.gyms.map(g=>[g.id,g.name])):'')+
+   btn(S.reg?'Create account':'Sign in','auth')+
+   `<button class="s" data-do="toggleReg">${S.reg?'Have an account? Sign in':'New here? Join now'}</button>`+
+   (S.reg?'':'<p class="sm mut c">Demo admin: admin@gym.local / admin123</p>'));
+}
+async function pHome(){
+  const d=await api('me'),u=d.user;
+  const first=esc(u.name.split(' ')[0]);
+  const home=d.gyms.find(g=>g.id===u.home_gym_id);
+  let h=`<h2>Hi, ${first}!</h2>`;
+  if(u.status!=='active')h+=`<p class="bad">Membership ${esc(u.status)} - manage it in More</p>`;
+  h+=card(d.plan.name+' member',barcode(u.member_code)+`<p class="c"><b>${esc(u.member_code)}</b></p>`);
+  h+=card('Check in',sel('ci-gym',d.gyms.map(g=>[g.id,g.name]),home.id)+
+    `<div class="row">${btn('Check in','checkin',{},'g')}${btn(`Guest pass (${u.guest_passes})`,'checkin',{guest:1},'s')}</div>`);
+  h+=card('Your stats',`<p>Current streak: <b>${d.streak}</b> day(s)</p><p class="sm">Badges: ${d.badges.map(b=>esc(b.badge)).join(', ')||'none yet - join a challenge in More'}</p>`);
+  const t=d.today;
+  h+=card("Today's session",t?`<p>${esc(t.plan)}: <b>${esc(t.title)}</b></p>${t.exercises.map(e=>`<div class="sm">- ${esc(e)}</div>`).join('')}`:'<p class="mut">No plan active. Pick one under Train > Plans.</p>');
+  h+=card('Recent visits',d.history.map(x=>`<div class="sm">${esc(x.ts)} &nbsp;${esc(x.gym)}${x.guest?' (guest)':''}</div>`).join('')||'<p class="mut">No visits yet</p>');
+  return h;
+}
+async function pTrain(){
+  const d=await api('train'),sub=S.sub.Train;let h=seg('Train',['Workout','Plans','Nutrition','Progress']);
+  if(sub==='Workout'){
+    let c='';
+    if(!d.workout_id)c=btn('Start workout','wstart',{},'g');
+    else{
+      c=sel('ex',d.exercises.map(e=>[e.id,`${e.name} (${e.muscle})`]))+`<div class="row"><input id="reps" type="number" inputmode="numeric" placeholder="Reps"><input id="wt" type="number" inputmode="decimal" placeholder="kg"></div>`+
+        btn('Add set','wset',{id:d.workout_id})+d.sets.map((s,i)=>`<div class="item sm"><span>${i+1}. ${esc(s.exercise)}</span><span>${s.reps} x ${s.weight} kg</span></div>`).join('')+btn('Finish workout','wfinish',{id:d.workout_id},'r');
+    }
+    h+=card('Log workout',c)+card('History',d.history.map(w=>`<div class="item sm"><span>${esc(w.started)}</span><span>${w.sets} sets, ${Math.round(w.volume).toLocaleString()} kg</span></div>`).join('')||'<p class="mut">No workouts yet</p>');
+  }else if(sub==='Plans'){
+    const dn=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+    h+=d.plans.map(p=>card(p.name+(d.active_plan&&d.active_plan.id===p.id?'  [active]':''),`<p class="sm mut">${esc(p.goal)} - ${esc(p.description)}</p>`+p.days.map(x=>`<div class="sm"><b>${dn[x.day]}</b> ${esc(x.title)}: ${x.exercises.map(esc).join(', ')}</div>`).join('')+btn('Use this plan','pactivate',{plan_id:p.id}))).join('');
+  }else if(sub==='Nutrition'){
+    const n=d.nutrition;
+    h+=card('Today',`<p><b>${n.calories}</b> / ${n.goal} kcal &nbsp;-&nbsp; ${n.protein.toFixed(0)} g protein</p>${bar(n.calories,n.goal)}<p class="sm ${n.remaining>=0?'ok':'bad'}">${n.remaining>=0?n.remaining+' kcal remaining':-n.remaining+' kcal over'}</p>`+
+      n.items.map(i=>`<div class="item sm"><span>${esc(i.name)} - ${i.calories} kcal</span>${btn('x','fdel',{id:i.id},'r sm')}</div>`).join(''));
+    h+=card('Quick add',sel('food',d.foods.map((f,i)=>[i,`${f.name} (${f.calories} kcal)`]))+btn('Add','fquick',{})+
+      `<input id="fn" placeholder="Custom food name"><div class="row"><input id="fc" type="number" inputmode="numeric" placeholder="kcal"><input id="fp" type="number" inputmode="decimal" placeholder="protein g"></div>`+btn('Add custom','fcustom',{},'s'));
+    h+=card('Daily goal',`<div class="row"><input id="goal" type="number" inputmode="numeric" value="${n.goal}">${btn('Set','goal',{},'s')}</div>`);
+    window._foods=d.foods;
+  }else{
+    h+=card('Body weight',`<div class="row"><input id="kg" type="number" inputmode="decimal" placeholder="Today's weight (kg)">${btn('Log','weight')}</div>`+
+      d.weights.map(w=>`<div class="item sm"><span>${esc(w.day)}</span><span>${w.kg} kg</span></div>`).join('')+
+      (d.weights.length>1?`<p class="sm">Change over ${d.weights.length} entries: <b>${(d.weights[0].kg-d.weights.at(-1).kg>=0?'+':'')+(d.weights[0].kg-d.weights.at(-1).kg).toFixed(1)} kg</b></p>`:''));
+    h+=card('Personal records',d.prs.map(p=>`<div class="item sm"><span>${esc(p.exercise)}</span><span>${p.weight} kg x ${p.reps}</span></div>`).join('')||'<p class="mut">Log some sets to see your PRs</p>');
+  }
+  return h;
+}
+async function pBook(){
+  const me=await api('me');if(!S.bookGym)S.bookGym=me.user.home_gym_id;
+  const d=await api('book',{gym_id:S.bookGym});
+  const booked=new Set(d.mine.map(m=>m.id));
+  let h=sel('bgym',me.gyms.map(g=>[g.id,g.name]),S.bookGym);
+  h+=card('Your bookings',d.mine.map(m=>`<div class="item sm"><span>${esc(m.start_ts)}<br>${esc(m.title)} @ ${esc(m.gym)}</span>${btn('Cancel','ccancel',{id:m.id},'r sm')}</div>`).join('')+
+    d.my_equipment.map(m=>`<div class="item sm"><span>${esc(m.start_ts)}<br>${esc(m.name)} @ ${esc(m.gym)}</span>${btn('Cancel','ecancel',{id:m.id},'r sm')}</div>`).join('')||'<p class="mut">Nothing booked</p>');
+  h+=card('Classes - next 7 days',d.classes.map(k=>{const full=k.booked>=k.capacity;
+    return `<div class="item sm"><span><b>${esc(k.title)}</b> with ${esc(k.instructor)}<br>${esc(k.start_ts)} - ${k.booked}/${k.capacity} spots</span>${booked.has(k.id)?'<span class="ok">booked</span>':btn(full?'Full':'Book','cbook',{id:k.id},full?'s sm':'g sm')}</div>`}).join('')||'<p class="mut">No classes</p>');
+  const days=[...Array(4)].map((_,i)=>{const t=new Date(Date.now()+i*864e5);const iso=new Date(t-t.getTimezoneOffset()*6e4).toISOString().slice(0,10);return [iso,t.toLocaleDateString(undefined,{weekday:'short',month:'short',day:'numeric'})]});
+  h+=card('Reserve equipment (30 min)',sel('eq',d.equipment.map(e=>[e.id,e.name]))+sel('eday',days)+`<div id="slots" class="slots"></div>`);
+  return h;
+}
+async function loadSlots(){
+  const box=$('#slots');if(!box)return;
+  try{const s=await api('slots',{equipment_id:val('eq'),day:val('eday')});
+    box.innerHTML=s.slice(0,12).map(x=>btn(x.slice(11),'ebook',{start:x})).join('')||'<span class="mut">No open slots</span>';
+    if(s.length>12)box.insertAdjacentHTML('afterend',`<p class="sm mut">+${s.length-12} later slots - pick another day</p>`);
+  }catch(e){toast(e.message)}
+}
+async function pGyms(){
+  const [gs,me]=await Promise.all([api('gyms'),api('me')]);
+  return '<h2>Clubs</h2>'+gs.map(g=>{const is24=g.hours&&g.hours[0]==='00:00'&&g.hours[1]==='24:00';
+    return card(g.name+(g.id===me.user.home_gym_id?'  (home)':''),`<p class="sm">${esc(g.address)}</p><p><span class="${g.open?'ok':'bad'}">${g.open?'Open now':'Closed'}</span> - ${is24?'Open 24 hours':esc(g.hours.join(' - '))}</p><p class="sm">Crowd: ${g.crowd.label} (${g.crowd.count} recent check-ins)</p>${bar(g.crowd.percent,100)}`+
+    (g.id!==me.user.home_gym_id?btn('Make home club','home',{gym_id:g.id},'s'):''))}).join('');
+}
+async function pMore(){
+  const me=await api('me'),u=me.user,d=await api('more');
+  const opts=['Membership','Challenges',...(u.role==='admin'?['Admin']:[])];
+  if(!opts.includes(S.sub.More))S.sub.More=opts[0];
+  let h=seg('More',opts);const sub=S.sub.More;
+  if(sub==='Membership'){
+    h+=card('Membership',`<p class="sm">${esc(u.name)} - ${esc(u.email)}</p><p>Plan: <b>${esc(me.plan.name)}</b> ($${me.plan.price.toFixed(2)}/mo)<br>Status: <b>${esc(u.status)}</b><br>Next billing: ${esc(u.next_billing)}<br>Guest passes: ${u.guest_passes}</p>`+
+      (u.status==='active'?btn('Freeze membership','status',{status:'frozen'},'s')+btn('Cancel membership','cancelm',{},'r'):btn('Reactivate','status',{status:'active'},'g')));
+    h+=d.plans.map(p=>card(p.name+(p.id===u.plan_id?'  [current]':''),`<p class="sm">$${p.price.toFixed(2)}/mo - ${esc(p.perks)}</p>`+(p.id!==u.plan_id&&u.status==='active'?btn('Switch to '+p.name,'pchange',{plan_id:p.id}):''))).join('');
+    h+=btn('Sign out','logout',{},'s');
+  }else if(sub==='Challenges'){
+    h+=d.challenges.map(c=>card(c.title,`<p class="sm mut">${c.target} ${esc(c.metric)} in ${c.days} days - badge: ${esc(c.badge)}</p>`+(c.joined?`<p>${c.progress}/${c.target}${c.expired?' - expired':''}</p>${bar(c.progress,c.target)}`:btn('Join','cjoin',{id:c.id},'g')))).join('');
+    h+=card('Leaderboard - visits, last 30 days',d.leaderboard.map((r,i)=>`<div class="item sm"><span>${i+1}. ${esc(r.name)}</span><span>${r.visits}</span></div>`).join('')||'<p class="mut">No check-ins yet</p>');
+  }else{
+    const a=await api('admin',{q:S.q}),st=a.stats;
+    h+=card('Dashboard',`<p>Members: ${st.members} (${st.active} active)<br>Check-ins today: ${st.checkins_today}<br>Monthly revenue: $${st.monthly_revenue.toFixed(2)}<br>${st.by_plan.map(p=>esc(p.name)+': '+p.n).join(' &nbsp; ')}</p>`);
+    h+=card('Members',`<input id="mq" placeholder="Search name, email or code" value="${esc(S.q)}">`+a.members.map(m=>`<div class="item sm"><span>${esc(m.name)} (${esc(m.plan)})<br>${esc(m.member_code)} - ${esc(m.status)}</span>${btn(m.status==='active'?'Freeze':'Activate','astatus',{id:m.id,status:m.status==='active'?'frozen':'active'},'s sm')}</div>`).join('')||'<p class="mut">No members found</p>');
+    h+=card('Add class',`<input id="ct" placeholder="Title"><input id="ci" placeholder="Instructor">${sel('cg',a.gyms.map(g=>[g.id,g.name]))}<input id="cs" type="datetime-local"><input id="cc" type="number" inputmode="numeric" placeholder="Capacity">`+btn('Create class','cadd',{},'g'));
+    h+=card('Classes',a.classes.map(k=>`<div class="item sm"><span>${esc(k.start_ts)} ${esc(k.title)}<br>${esc(k.gym)} (${k.booked}/${k.capacity})</span><span class="row fix">${btn('Roster','roster',{id:k.id,t:k.title},'s sm')}${btn('Del','cdel',{id:k.id},'r sm')}</span></div>`).join(''));
+    h+=card('Recent check-ins',a.recent.map(r=>`<div class="sm">${esc(r.ts)} ${esc(r.name)} @ ${esc(r.gym)}</div>`).join('')||'<p class="mut">None</p>');
+  }
+  return h;
+}
+const PAGES={Home:pHome,Train:pTrain,Book:pBook,Gyms:pGyms,More:pMore};
+async function render(keepFocus){
+  const focus=document.activeElement&&document.activeElement.id;
+  if(!S.authed){const ok=await fetch('/api/me',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}).then(r=>r.ok);S.authed=ok}
+  if(!S.authed)return login();
+  $('#nav').innerHTML=TABS.map(t=>`<button class="${S.tab===t?'on':''}" data-do="tab" data-args='${esc(JSON.stringify({t}))}'>${t}</button>`).join('');
+  try{$('#app').innerHTML=await PAGES[S.tab]()}catch(e){toast(e.message);return}
+  if(S.tab==='Book')loadSlots();
+  if(focus&&keepFocus){const el=document.getElementById(focus);if(el){el.focus();const v=el.value;el.value='';el.value=v}}
+}
+// ---- actions ----
+const H={
+  tab:a=>{S.tab=a.t;render()},sub:a=>{S.sub[a.tab]=a.o;render()},toggleReg:()=>{S.reg=!S.reg;login()},
+  async auth(){const body=S.reg?{name:val('name'),email:val('email'),password:val('pw'),plan_id:val('plan'),gym_id:val('gym')}:{email:val('email'),password:val('pw')};
+    try{await post(S.reg?'/api/register':'/api/login',body);S.authed=true;S.reg=false;S.tab='Home';render()}catch(e){toast(e.message)}},
+  async logout(){await post('/api/logout');S.authed=false;S.reg=false;render()},
+  async checkin(a){const r=await run(api('checkin',{gym_id:val('ci-gym'),guest:a.guest}));if(r)toast('Checked in! Have a great workout!'+(r.badges.length?' Badge earned: '+r.badges.join(', '):''),'ok')},
+  wstart:()=>run(api('workout_start')),
+  wset:a=>run(api('workout_set',{workout_id:a.id,exercise_id:val('ex'),reps:val('reps'),weight:val('wt')})),
+  async wfinish(a){const r=await run(api('workout_finish',{workout_id:a.id}));if(r)toast('Workout saved.'+(r.badges.length?' Badge earned: '+r.badges.join(', '):''),'ok')},
+  pactivate:a=>run(api('plan_activate',a),'Plan activated'),
+  fquick:()=>{const f=window._foods[val('food')];run(api('food_add',{name:f.name,calories:f.calories,protein:f.protein}))},
+  fcustom:()=>run(api('food_add',{name:val('fn'),calories:val('fc'),protein:val('fp')})),
+  fdel:a=>run(api('food_delete',a)),goal:()=>run(api('goal',{goal:val('goal')}),'Goal saved'),weight:()=>run(api('weight',{kg:val('kg')})),
+  cbook:a=>run(api('class_book',a),'Class booked!'),ccancel:a=>run(api('class_cancel',a)),
+  ebook:a=>run(api('equip_book',{equipment_id:val('eq'),start:a.start}),'Reserved!'),ecancel:a=>run(api('equip_cancel',a)),
+  home:a=>run(api('home',a),'Home club updated'),status:a=>run(api('status',a)),
+  cancelm:()=>{if(confirm('Cancel your membership? You can reactivate later.'))run(api('status',{status:'cancelled'}))},
+  pchange:a=>run(api('plan_change',a),'Plan updated'),cjoin:a=>run(api('challenge_join',a)),
+  astatus:a=>run(api('admin_status',a)),cdel:a=>{if(confirm('Delete this class and its bookings?'))run(api('admin_class_delete',a))},
+  async roster(a){try{const r=await api('admin_roster',a);alert(a.t+'\n\n'+(r.map(m=>`${m.name} (${m.member_code})`).join('\n')||'No bookings yet'))}catch(e){toast(e.message)}},
+  cadd:()=>run(api('admin_class_add',{title:val('ct'),instructor:val('ci'),gym_id:val('cg'),start:val('cs'),capacity:val('cc')}),'Class created'),
+};
+document.addEventListener('click',e=>{const el=e.target.closest('[data-do]');if(el&&H[el.dataset.do])H[el.dataset.do](el.dataset.args?JSON.parse(el.dataset.args):{})});
+document.addEventListener('change',e=>{
+  if(e.target.id==='bgym'){S.bookGym=+e.target.value;render()}
+  if(e.target.id==='eq'||e.target.id==='eday')loadSlots()});
+let qT;document.addEventListener('input',e=>{if(e.target.id==='mq'){S.q=e.target.value;clearTimeout(qT);qT=setTimeout(()=>render(true),300)}});
+render();
+</script></body></html>
